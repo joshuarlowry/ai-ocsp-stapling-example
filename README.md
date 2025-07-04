@@ -11,11 +11,13 @@ A real-world, end-to-end example that shows how **Online Certificate Status Prot
 2. What is OCSP Stapling and why use it?
 3. How OCSP Stapling works in this project
 4. Architecture & Containers
-5. Quick Start (docker compose)
-6. Generating the demo PKI with OpenSSL
-7. How to inspect the staple
-8. Cleaning up
-9. References
+5. Quick Start (Full Walk-Through)
+6. Verifying that Stapling Works
+7. File Structure Cheat-Sheet
+8. OCSP & Stapling – Super-Short Primer
+9. Tear-Down
+10. Troubleshooting FAQ
+11. References
 
 ---
 
@@ -78,64 +80,121 @@ Container overview:
 
 | Name | Base Image | Purpose |
 |------|------------|---------|
-| **UI** | `node:alpine` → `nginx:alpine` | Serves the static frontend (JS/HTML/CSS). |
+| **UI** | (served by Apache `htdocs/`) | Static HTML/JS frontend – no dedicated container needed. |
 | **API** | `python:3.12-slim` | FastAPI backend (echo service). |
 | **PROXIER** | `httpd:2.4-alpine` | TLS termination, reverse proxy to API, OCSP stapling enabled. |
-| **OCSP_Responder** | [`wheelybird/ocsp-responder`](https://hub.docker.com/r/wheelybird/ocsp-responder) | Answers OCSP requests for the demo CA. |
+| **OCSP_Responder** | `alpine:3` + `openssl` | Answers OCSP requests for the demo CA. |
 
 ---
 
-## 5. Quick Start
-Prerequisites: Docker Desktop or Docker Engine 20+ & Docker Compose v2.
+## 🛠️  5. Quick Start (Full Walk-Through)
+
+Follow this exact order – it takes less than a minute on a modern machine:
 
 ```bash
-# clone and run
+# 1) Clone & enter the project
 $ git clone https://github.com/your-org/ocsp-stapling-demo.git
 $ cd ocsp-stapling-demo
+
+# 2) Generate the demo certificates **before** building the images
+$ ./pki/gen.sh
+
+# 3) Build & start the stack (API ➜ OCSP ➜ Apache proxy)
 $ docker compose up --build
 ```
 
-Now visit **https://localhost** (self-signed CA, so add a security exception) – the page should load instantly.
+Open https://localhost in your browser (accept the self-signed certificate warning).  You should see the demo page instantly because **Apache has already stapled a fresh OCSP response** – no extra round-trip was required.
+
+### ⏱️  What just happened?
+1. `gen.sh` created a tiny Public-Key-Infrastructure (PKI):
+   * a *Root CA* (self-signed)
+   * a *server certificate* for `localhost`
+   * an *OCSP Responder* certificate (with the special *OCSP Signing* EKU)
+   * an OpenSSL *index.txt* database that tracks the status of all issued certs
+2. Docker Compose started **three** containers:
+   1. **api** – a FastAPI service listening on port 8000 (HTTP)
+   2. **ocsp_responder** – a super-simple OpenSSL process answering OCSP queries on port 8080 (HTTP)
+   3. **proxier** – Apache HTTP Server (mod_ssl) acting as a TLS terminator on port 443 (HTTPS)
+3. On first start Apache fetched its own OCSP status from the responder and cached it in shared memory.  Every subsequent TLS handshake re-uses this cached staple (until it nears expiry, then it is refreshed automatically).
 
 ---
 
-## 6. Generating the demo PKI with OpenSSL (already scripted)
-If you are curious, look at `pki/gen.sh` which:
+## 🔬 6. Verifying that Stapling Works
 
-1. Creates a root CA and issues a server certificate for `localhost`.
-2. Generates an **OCSP Responder** certificate with the `OCSP Signing` EKU.
-3. Exports the necessary files (`ca.crt`, `server.crt`, `server.key`, `ocsp.crt`, `ocsp.key`, `index.txt`, `serial`, etc.) that are mounted into the containers.
-
-Feel free to tweak the script or rebuild the PKI:
+### a) OpenSSL CLI
 
 ```bash
-$ ./pki/gen.sh && docker compose build proxier ocsp_responder
+$ openssl s_client -connect localhost:443 -servername localhost -status 2>/dev/null | \
+  sed -n '/OCSP Response Data/,+15p'
+```
+Look for these lines:
+
+```
+OCSP Response Status: successful (0x0)
+    Cert Status: good
+```
+That proves your browser did **not** have to contact the CA – everything was delivered by the server.
+
+### b) Browser DevTools
+1. Press <kbd>F12</kbd> → *Network* tab.
+2. Reload the page and click the top request (document).
+3. Open the *Security* (🛡️) panel – you should see *OCSP Response → Good*.
+
+### c) Packet Capture (optional)
+If you run Wireshark on `lo` / `docker0`, you will **not** find any outgoing traffic to the OCSP endpoint while loading the page – stapling removed that round-trip completely.
+
+---
+
+## 🧩 7. File Structure Cheat-Sheet
+
+```
+├── api/                # FastAPI backend
+│   ├── main.py
+│   ├── Dockerfile
+│   └── requirements.txt
+├── proxier/            # Apache TLS terminator (with OCSP stapling)
+│   ├── httpd.conf
+│   ├── Dockerfile
+│   └── htdocs/index.html
+├── ocsp_responder/     # Tiny OpenSSL OCSP server
+│   ├── run.sh
+│   └── Dockerfile
+├── pki/                # Mini-CA that issues two leaf certs
+│   ├── gen.sh          # ← run me!
+│   └── output/         # All generated keys & certs (mounted into containers)
+└── docker-compose.yml  # Glue everything together
 ```
 
 ---
 
-## 7. How to inspect the stapled response
+## 🧑‍🎓 8. OCSP & Stapling – Super-Short Primer
 
-### OpenSSL
-```bash
-$ openssl s_client -connect localhost:443 -servername localhost -status 2>/dev/null | grep -A 15 "OCSP Response Data"
-```
-You should see `OCSP Response Status: successful (0x0)`.
+• **OCSP** – a real-time protocol that asks *"Is certificate X revoked?"*  The question is sent to the CA every time your browser opens a new TLS connection.  This adds latency and leaks browsing history to the CA.
 
-### Browser DevTools
-1. Open **Network** tab → click the request → **Security** panel.
-2. Look for *OCSP Response* = *Good*.
+• **Stapling** – the server does that check *once* on behalf of every client, signs the answer (*staple*) with the CA's key and attaches it to the TLS handshake.  Clients only need to verify the signature – zero extra network RTTs.
+
+![Timeline diagram showing normal OCSP (extra RTT) vs stapling (no extra RTT)](docs/ocsp-timeline.svg)
 
 ---
 
-## 8. Cleaning up
+## 🧹 9. Tear-Down
+
 ```bash
-$ docker compose down -v
+$ docker compose down -v   # stop & remove containers + anonymous volumes
+$ rm -rf pki/output        # wipe the demo PKI if you like
 ```
 
 ---
 
-## 9. References
+## 🗒️ 10. Troubleshooting FAQ
+
+1. **Browser says *"OCSP response invalid or expired"*** – run `./pki/gen.sh` again and `docker compose restart proxier`.
+2. **Port 443 already in use** – change the mapping in `docker-compose.yml`.
+3. **Wanted to use a real domain** – regenerate the server certificate with `CN=your.domain` and update DNS → works the same.
+
+---
+
+## 11. References
 * RFC 6960 – Online Certificate Status Protocol
 * RFC 6066 – TLS Extensions (section 7 – OCSP stapling)
 * [Mozilla SSL Configuration Generator](https://ssl-config.mozilla.org/)

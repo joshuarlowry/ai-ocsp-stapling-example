@@ -1,0 +1,28 @@
+version: "3.9"
+
+services:
+  api:
+    build: ./api
+    container_name: api
+    restart: unless-stopped
+
+  ocsp_responder:
+    build: ./ocsp_responder
+    container_name: ocsp_responder
+    restart: unless-stopped
+    ports:
+      - "8080:8080"
+    volumes:
+      - ./pki/output:/certs:ro
+
+  proxier:
+    build: ./proxier
+    container_name: proxier
+    depends_on:
+      - api
+      - ocsp_responder
+    restart: unless-stopped
+    ports:
+      - "443:443"
+    volumes:
+      - ./pki/output:/etc/ssl/demo:ro
