@@ -18,6 +18,8 @@ A real-world, end-to-end example that shows how **Online Certificate Status Prot
 9. Tear-Down
 10. Troubleshooting FAQ
 11. References
+12. TLS & OCSP Stapling – Sequence Diagram
+13. Playing with Certificate Status (Good → Revoked → Unknown)
 
 ---
 
@@ -204,3 +206,46 @@ $ rm -rf pki/output        # wipe the demo PKI if you like
 ---
 
 Feel free to open issues or pull requests – happy stapling! :tada:
+
+## 📊 12. TLS & OCSP Stapling – Sequence Diagram
+
+```mermaid
+sequenceDiagram
+    participant Browser
+    participant Apache as PROXIER (Apache)
+    participant OCSP as OCSP Responder
+
+    Browser->>Apache: TLS ClientHello (+status_request)
+    alt Staple cached & fresh
+        Apache-->>Browser: TLS Certificate + cached OCSP staple
+    else Cache expired or empty
+        Apache->>OCSP: HTTP OCSP request
+        OCSP-->>Apache: Signed OCSP response (good/revoked/unknown)
+        Apache-->>Browser: TLS Certificate + fresh OCSP staple
+    end
+    Browser-->>Apache: TLS Finished
+    Apache-->>Browser: Encrypted HTTP response
+```
+
+---
+
+## 🧪 13. Playing with Certificate Status (Good → Revoked → Unknown)
+
+One advantage of running your **own** CA & OCSP responder is that you can flip certificate states at will.  The table below shows how to simulate each state and what you should see in the client.
+
+| Desired state | Steps (run from project root) | Expected `openssl s_client -status` lines |
+|---------------|-------------------------------|-------------------------------------------|
+| **good** (default) | 1. `docker compose up -d` | `Cert Status: good` |
+| **revoked** | 1. `docker compose stop proxier`  <br>2. `openssl ca -config pki/output/openssl.cnf -revoke pki/output/certs/server.crt`  <br>3. `docker compose restart ocsp_responder proxier` | `Cert Status: revoked`  <br>`Revocation Time:` (the timestamp you just created) |
+| **unknown** | 1. `docker compose stop proxier`  <br>2. `sed -i '/server.crt/d' pki/output/index.txt`  (removes the record)  <br>3. `docker compose restart ocsp_responder proxier` | `Cert Status: unknown` |
+
+After each change rerun:
+
+```bash
+$ openssl s_client -connect localhost:443 -servername localhost -status 2>/dev/null | \
+  sed -n '/OCSP Response Data/,+15p'
+```
+
+Tip: Watch the Apache logs (`docker compose logs -f proxier`) – you should see it automatically fetching a *fresh* OCSP response whenever you changed the database.
+
+---
