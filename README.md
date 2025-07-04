@@ -20,6 +20,7 @@ A real-world, end-to-end example that shows how **Online Certificate Status Prot
 11. References
 12. TLS & OCSP Stapling – Sequence Diagram
 13. Playing with Certificate Status (Good → Revoked → Unknown)
+14. FIPS Mode and Compliance
 
 ---
 
@@ -185,6 +186,32 @@ If you run Wireshark on `lo` / `docker0`, you will **not** find any outgoing tra
 $ docker compose down -v   # stop & remove containers + anonymous volumes
 $ rm -rf pki/output        # wipe the demo PKI if you like
 ```
+
+---
+
+## 🛡️  9.5. FIPS Mode and Compliance
+
+### What is FIPS?
+FIPS stands for Federal Information Processing Standards. FIPS 140-2 is a U.S. government standard that defines security requirements for cryptographic modules. Enabling FIPS mode in OpenSSL (and thus in Apache) restricts cryptographic operations to only those algorithms and key lengths approved by FIPS 140-2. This is often required for U.S. government projects or regulated industries (finance, healthcare, etc.).
+
+### FIPS Mode in This Project
+By default, FIPS mode is **not enabled** in this demo. You may see log messages like:
+```
+[ssl:debug] ... OpenSSL has FIPS mode disabled
+```
+This is normal unless you have a specific compliance requirement.
+
+### Do I Need FIPS Mode?
+- **You only need FIPS mode if you are required to comply with FIPS 140-2 (e.g., for government or regulated industry work).**
+- Enabling FIPS mode requires special builds of OpenSSL and Apache with FIPS support, which is not included in the default Docker images.
+
+### How to Enable FIPS Mode
+If you need FIPS mode:
+1. Use a base image for Apache and OpenSSL that is FIPS-capable (not the default Alpine or Debian images).
+2. Build OpenSSL and Apache with FIPS support, or use a vendor-provided FIPS-enabled image.
+3. Set the appropriate environment variables or configuration flags to enable FIPS mode at runtime.
+
+**Note:** Enabling FIPS mode is an advanced topic and may require significant changes to the Dockerfiles and build process.
 
 ---
 

@@ -1,0 +1,37 @@
+[ ca ]
+default_ca = CA_default
+
+[ CA_default ]
+dir             = /Users/joshualowry/Code/ai-ocsp-stapling-example/pki/output
+certs           = $dir/certs
+new_certs_dir   = $dir/newcerts
+database        = $dir/index.txt
+serial          = $dir/serial
+private_key     = $dir/private/ca.key
+certificate     = $dir/certs/ca.crt
+default_md      = sha256
+policy          = policy_any
+copy_extensions = copy
+
+[ policy_any ]
+commonName              = supplied
+stateOrProvinceName     = optional
+countryName             = optional
+organizationName        = optional
+organizationalUnitName  = optional
+emailAddress            = optional
+
+[ server_cert ]
+basicConstraints = CA:FALSE
+keyUsage = digitalSignature, keyEncipherment
+extendedKeyUsage = serverAuth
+authorityInfoAccess = OCSP;URI:http://ocsp_responder:8080
+subjectAltName = @alt_names
+
+[ alt_names ]
+DNS.1 = localhost
+
+[ v3_ocsp ]
+basicConstraints = CA:FALSE
+keyUsage = digitalSignature
+extendedKeyUsage = OCSPSigning

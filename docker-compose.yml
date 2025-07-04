@@ -23,6 +23,7 @@ services:
       - ocsp_responder
     restart: unless-stopped
     ports:
+      - "80:80"
       - "443:443"
     volumes:
       - ./pki/output:/etc/ssl/demo:ro
