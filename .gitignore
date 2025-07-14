@@ -1,0 +1,22 @@
+# PKI generated files
+pki/output/*
+!pki/output/openssl.cnf
+
+# Exclude all certs, keys, and CSRs
+pki/output/certs/
+pki/output/newcerts/
+pki/output/private/
+pki/output/*.csr
+pki/output/*.old
+pki/output/index.txt*
+pki/output/serial*
+
+# Python cache
+__pycache__/
+*.pyc
+
+# Docker
+*.log
+
+# OS files
+.DS_Store 
