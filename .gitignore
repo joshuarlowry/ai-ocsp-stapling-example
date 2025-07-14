@@ -1,6 +1,5 @@
 # PKI generated files
 pki/output/*
-!pki/output/openssl.cnf
 
 # Exclude all certs, keys, and CSRs
 pki/output/certs/
